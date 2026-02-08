@@ -21,7 +21,7 @@
             animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
-        /* 激しいパレード（右から左へ、大きく動く） */
+        /* 激しいパレード */
         @keyframes wild-parade {
             0% { transform: translateX(120vw) translateY(0) rotate(0deg) scale(0.5); }
             25% { transform: translateX(60vw) translateY(-10vh) rotate(45deg) scale(1.2); }
@@ -34,8 +34,8 @@
             animation-timing-function: linear;
             animation-iteration-count: infinite;
             position: absolute;
-            z-index: 100; /* 最前面 */
-            pointer-events: none; /* クリック透過 */
+            z-index: 100;
+            pointer-events: none;
         }
 
         @keyframes float {
@@ -51,7 +51,7 @@
     <div id="root" class="h-full"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
         // --- アイコンコンポーネント ---
         const IconTrophy = ({ className }) => (
@@ -74,6 +74,9 @@
         );
         const IconMapPin = ({ className }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        );
+        const IconChevronsDown = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>
         );
 
         // --- データ定義 ---
@@ -179,7 +182,7 @@
                 for (let i = 1; i <= species.count; i++) {
                     images.push({
                         ...species,
-                        fileName: `${species.id}_${i}.JPG`, // 基本は.JPGを生成
+                        fileName: `${species.id}_${i}.JPG`,
                         imageKey: `${species.id}_${i}`,
                     });
                 }
@@ -198,30 +201,36 @@
 
         // --- 画像エラーハンドリング関数 ---
         const handleImageError = (e, altText) => {
-            // .JPGでエラーが出たら、.jpg (小文字) を試す
-            if (e.target.src.includes('.JPG')) {
-                const newSrc = e.target.src.replace('.JPG', '.jpg');
-                // 無限ループ防止のため、リトライ用のハンドラを上書き
+            const currentSrc = e.target.src;
+            if (currentSrc.includes('.JPG')) {
+                const newSrc = currentSrc.replace('.JPG', '.jpg');
                 e.target.onerror = (e2) => {
-                    // .jpgでもダメならプレースホルダー
-                    e2.target.src = `https://placehold.co/600x800/111/333?text=${altText || 'No Image'}`;
-                    // 背景用など非表示にしたい場合は別途制御が必要だが、今回はクイズ用メイン画像を優先
+                    const newSrc2 = currentSrc.replace('.JPG', '.jpeg');
+                     e2.target.onerror = (e3) => {
+                        if (currentSrc.match(/_([0-9])\.JPG$/)) {
+                             const newSrc3 = currentSrc.replace(/_([0-9])\.JPG$/, '_0$1.JPG');
+                             e3.target.onerror = (e4) => {
+                                 e4.target.src = `https://placehold.co/600x800/111/333?text=${altText || 'Loading Error'}`;
+                             };
+                             e3.target.src = newSrc3;
+                        } else {
+                             e3.target.src = `https://placehold.co/600x800/111/333?text=${altText || 'Loading Error'}`;
+                        }
+                     };
+                     e2.target.src = newSrc2;
                 };
                 e.target.src = newSrc;
-            } else if (e.target.src.includes('.PNG')) {
-                // .PNGでエラーなら .png
-                 const newSrc = e.target.src.replace('.PNG', '.png');
+            } else if (currentSrc.includes('.PNG')) {
+                 const newSrc = currentSrc.replace('.PNG', '.png');
                  e.target.onerror = (e2) => {
                     e2.target.src = `https://placehold.co/150x150/transparent/white?text=No+Img`;
                  };
                  e.target.src = newSrc;
             } else {
-                // それ以外はプレースホルダー
                 e.target.src = `https://placehold.co/600x800/111/333?text=${altText || 'No Image'}`;
             }
         };
 
-        // 背景画像用のエラーハンドリング（失敗したら非表示）
         const handleBgImageError = (e) => {
             if (e.target.src.includes('.JPG')) {
                 e.target.src = e.target.src.replace('.JPG', '.jpg');
@@ -245,6 +254,9 @@
             const [showFeedback, setShowFeedback] = useState(false);
             const [selectedAnswer, setSelectedAnswer] = useState(null);
             const [titleIllustIndex, setTitleIllustIndex] = useState(1);
+            
+            // 連打防止用ステート
+            const [isInteractionBlocked, setIsInteractionBlocked] = useState(false);
 
             const allImages = useMemo(() => generateAllImages(), []);
 
@@ -253,6 +265,17 @@
                     setTitleIllustIndex(Math.floor(Math.random() * ILLUST_COUNT) + 1);
                 }
             }, [gameState]);
+
+            // 問題切り替え時のインタラクションロック
+            useEffect(() => {
+                if (gameState === 'quiz') {
+                    setIsInteractionBlocked(true);
+                    const timer = setTimeout(() => {
+                        setIsInteractionBlocked(false);
+                    }, 500); 
+                    return () => clearTimeout(timer);
+                }
+            }, [currentQuestionIndex, gameState]);
 
             const startGame = () => {
                 const shuffledImages = shuffleArray(allImages);
@@ -275,7 +298,7 @@
             };
 
             const handleAnswer = (choice) => {
-                if (showFeedback) return;
+                if (showFeedback || isInteractionBlocked) return; 
 
                 const currentQuestion = quizQuestions[currentQuestionIndex];
                 const isCorrect = choice.id === currentQuestion.image.id;
@@ -305,8 +328,8 @@
                     setGameState('result');
                 }
             };
-
-            const getIllustPath = (index) => `illust_${index}.PNG`; // 大文字.PNG
+            
+            const getIllustPath = (index) => `illust_${index}.PNG`;
 
             // --- 画面: タイトル ---
             if (gameState === 'title') {
@@ -320,8 +343,9 @@
                                     <img 
                                         src={img.fileName} 
                                         alt=""
+                                        decoding="sync"
                                         className="w-full h-full object-cover"
-                                        onError={handleBgImageError} // リトライ機能付き
+                                        onError={handleBgImageError}
                                     />
                                 </div>
                             ))}
@@ -333,6 +357,7 @@
                                 <img 
                                     src={getIllustPath(titleIllustIndex)} 
                                     alt="Penguin"
+                                    decoding="sync"
                                     className="h-32 md:h-40 object-contain drop-shadow-2xl animate-float"
                                     style={{ filter: "drop-shadow(0 0 10px rgba(0,0,0,0.5))" }}
                                     onError={(e) => handleImageError(e, 'Penguin')}
@@ -351,12 +376,8 @@
                                 className="group w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl font-bold text-xl shadow-2xl transition-all duration-200 flex items-center justify-center gap-3 active:scale-95 ring-2 ring-white/20"
                             >
                                 <IconPlay fill="currentColor" className="w-6 h-6" />
-                                クイズを始める
+                                ペンギンを見分ける
                             </button>
-                        </div>
-                        
-                        <div className="absolute bottom-4 text-white/90 text-xs z-10 font-mono drop-shadow-md">
-                            Total Photos: 56 | Ver 5.0-AutoFix
                         </div>
                     </div>
                 );
@@ -368,34 +389,45 @@
                 
                 return (
                     <div className="w-full h-full flex flex-col text-white bg-slate-900">
-                        {/* ヘッダー */}
-                        <div className="h-12 px-3 bg-slate-800 flex justify-between items-center shadow-md z-30 shrink-0">
-                            <div className="flex items-center gap-2">
+                        {/* ヘッダー (中央配置) */}
+                        <div className="h-14 px-3 bg-slate-800 flex items-center justify-between shadow-md z-30 shrink-0 relative">
+                            {/* Left: Q数 */}
+                            <div className="flex items-center gap-2 z-10">
                                 <span className="bg-cyan-600 text-xs font-bold px-2 py-0.5 rounded">Q.{currentQuestionIndex + 1}</span>
-                                <span className="text-xs text-gray-300">残り {10 - currentQuestionIndex}問</span>
                             </div>
-                            <span className="font-mono text-cyan-400 font-bold text-sm">Score: {score}</span>
+
+                            {/* Center: 英語の質問文 */}
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span className="text-slate-400 text-[10px] sm:text-xs font-serif tracking-wider text-center px-16 leading-tight">
+                                    What species of penguin is this?
+                                </span>
+                            </div>
+
+                            {/* Right: スコア */}
+                            <span className="font-mono text-cyan-400 font-bold text-sm z-10">
+                                {score}/{currentQuestionIndex}問
+                            </span>
                         </div>
 
-                        {/* 画像エリア */}
-                        <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden py-2 shrink min-h-0">
+                        {/* 画像エリア: フルスクリーン表示 */}
+                        <div className="flex-1 relative w-full bg-black overflow-hidden shrink min-h-0">
                             <img 
                                 src={currentQuestion.image.fileName} 
                                 alt="Question"
-                                className="max-w-full max-h-full object-contain drop-shadow-2xl"
-                                onError={(e) => handleImageError(e, currentQuestion.image.shortName)} // リトライ機能付き
+                                decoding="sync"
+                                className="w-full h-full object-cover object-center"
+                                onError={(e) => handleImageError(e, currentQuestion.image.shortName)}
                             />
                         </div>
 
-                        {/* 選択肢エリア: 18個グリッド */}
+                        {/* 選択肢エリア */}
                         <div className="bg-slate-900 p-2 z-30 shrink-0 border-t border-slate-800 pb-safe">
-                             <div className="text-center text-gray-400 text-[10px] mb-1">このペンギンは誰？</div>
                             <div className="grid grid-cols-3 gap-1.5 max-w-md mx-auto">
                                 {currentQuestion.choices.map((choice, idx) => (
                                     <button
                                         key={idx}
                                         onClick={() => handleAnswer(choice)}
-                                        disabled={showFeedback}
+                                        disabled={showFeedback || isInteractionBlocked} 
                                         className={`
                                             h-9 px-1 rounded-md font-bold text-[10px] sm:text-xs shadow-sm transition-all duration-150 relative overflow-hidden flex items-center justify-center leading-tight break-words
                                             ${showFeedback 
@@ -404,7 +436,9 @@
                                                     : choice === selectedAnswer 
                                                         ? 'bg-red-500 text-white opacity-80' 
                                                         : 'bg-slate-800 text-gray-500 opacity-30') 
-                                                : 'bg-white text-slate-900 active:bg-cyan-200 active:scale-95'}
+                                                : isInteractionBlocked 
+                                                    ? 'bg-gray-100 text-slate-400 cursor-not-allowed'
+                                                    : 'bg-white text-slate-900 active:bg-cyan-200 active:scale-95'}
                                         `}
                                     >
                                         {choice.shortName}
@@ -413,12 +447,15 @@
                             </div>
                         </div>
 
-                        {/* 解説モーダル */}
+                        {/* 解説モーダル (ドラッグ無効化・背景明るいまま) */}
                         {showFeedback && (
-                            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-                                <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+                            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center pointer-events-none">
+                                {/* 背景: 透明にして明るく見せる (ポインターイベントは有効にして誤操作防止) */}
+                                <div className="absolute inset-0 bg-transparent pointer-events-auto" />
                                 
-                                <div className="bg-white text-slate-900 w-full sm:max-w-md p-5 rounded-t-2xl sm:rounded-2xl shadow-2xl relative z-10 animate-slide-up max-h-[85vh] overflow-y-auto">
+                                <div 
+                                    className="bg-white text-slate-900 w-full sm:max-w-md p-5 rounded-t-2xl sm:rounded-2xl shadow-2xl relative z-10 animate-slide-up max-h-[85vh] overflow-y-auto pointer-events-auto"
+                                >
                                     <div className="flex items-center gap-3 mb-3 border-b border-gray-100 pb-3 sticky top-0 bg-white z-20">
                                         {selectedAnswer.id === currentQuestion.image.id ? (
                                             <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600 shrink-0">
@@ -437,7 +474,7 @@
                                         </div>
                                     </div>
 
-                                    {/* 生態 (詳細・先頭) */}
+                                    {/* 生態 */}
                                     <div className="bg-orange-50 p-3 rounded-lg mb-3 border border-orange-100">
                                         <h4 className="font-bold text-xs text-orange-800 mb-1 flex items-center gap-1">
                                             <IconMapPin className="w-4 h-4" />
@@ -448,7 +485,7 @@
                                         </p>
                                     </div>
 
-                                    {/* 見分け方 (後) */}
+                                    {/* 見分け方 */}
                                     <div className="bg-cyan-50 p-3 rounded-lg mb-4 border border-cyan-100">
                                         <h4 className="font-bold text-xs text-cyan-800 mb-1 flex items-center gap-1">
                                             <IconInfo className="w-4 h-4" />
@@ -491,7 +528,8 @@
                                             top: `${Math.random() * 80 + 10}%`,
                                             animationDuration: `${2 + Math.random() * 3}s`,
                                             animationDelay: `${i * 0.3}s`,
-                                            width: `${80 + Math.random() * 100}px`
+                                            width: `${80 + Math.random() * 100}px`,
+                                            transform: 'translateX(120vw)'
                                         }}
                                         onError={(e) => handleImageError(e, 'parade')}
                                     />
@@ -530,6 +568,7 @@
                                                 <img 
                                                     src={res.questionImage.fileName} 
                                                     alt="thumb" 
+                                                    decoding="sync"
                                                     className="w-full h-full object-contain bg-black" 
                                                     onError={(e) => handleImageError(e, 'thumb')}
                                                 />
